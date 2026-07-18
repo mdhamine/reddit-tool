@@ -3,6 +3,14 @@ import { defineEventHandler, readMultipartFormData, createError } from "h3";
 const ALLOWED_TLDS = ["ai", "com", "co", "so", "app"];
 const URL_REGEX = /https?:\/\/[^\s<>()"'\]\[]+/gi;
 
+// Matches bare domains with no protocol, e.g. "example.com" or "example.com/pricing".
+// - lookbehind stops it matching mid-word (won't double-fire inside a longer token,
+//   won't fire off the end of an email's local-part, etc.)
+// - requires the domain to end in one of our allowed TLDs
+// - optionally grabs a trailing path/query if present
+const BARE_DOMAIN_REGEX =
+  /(?<![\w.@-])((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:ai|com|co|so|app))(\/[^\s"'()<>\]]*)?/gi;
+
 interface ExtractedLink {
   url: string;
   domain: string;
@@ -24,11 +32,34 @@ function extractUrlsFromString(
   path: string,
   out: ExtractedLink[],
 ) {
-  const matches = text.match(URL_REGEX);
-  if (!matches) return;
+  // Pass 1: full URLs that already have a protocol, e.g. "https://example.com"
+  const urlMatches = text.match(URL_REGEX);
+  if (urlMatches) {
+    for (const raw of urlMatches) {
+      const url = cleanTrailingPunctuation(raw);
+      try {
+        const host = new URL(url).hostname.toLowerCase();
+        const tld = getTld(host);
+        if (ALLOWED_TLDS.includes(tld)) {
+          out.push({ url, domain: host, tld, path });
+        }
+      } catch {
+        // not a parsable URL, skip
+      }
+    }
+  }
 
-  for (const raw of matches) {
-    const url = cleanTrailingPunctuation(raw);
+  // Mask out whatever Pass 1 already matched so Pass 2 doesn't re-detect
+  // the same domain a second time as a "bare" match.
+  const maskedText = text.replace(URL_REGEX, (m) => " ".repeat(m.length));
+
+  // Pass 2: bare domains with no protocol, e.g. "example.com" or "example.com/pricing"
+  const bareMatches = maskedText.matchAll(BARE_DOMAIN_REGEX);
+  for (const m of bareMatches) {
+    const domainPart = m[1];
+    const pathPart = m[2] ?? "";
+    const candidate = cleanTrailingPunctuation(domainPart + pathPart);
+    const url = `https://${candidate}`;
     try {
       const host = new URL(url).hostname.toLowerCase();
       const tld = getTld(host);

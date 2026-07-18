@@ -32,11 +32,19 @@ const tabs: {
   { key: "app", label: ".app" },
 ];
 
+// Defensive: never assume `result.value.grouped` or `.links` exist,
+// in case the API response shape is ever off (error body, older cache, etc.)
 const visibleLinks = computed(() => {
   if (!result.value) return [];
-  if (activeTab.value === "all") return result.value.links;
-  return result.value.grouped[activeTab.value] || [];
+  if (activeTab.value === "all") return result.value.links ?? [];
+  return result.value.grouped?.[activeTab.value] ?? [];
 });
+
+function tabCount(key: "all" | "ai" | "com" | "co" | "so" | "app") {
+  if (!result.value) return 0;
+  if (key === "all") return result.value.totalLinksFound ?? 0;
+  return result.value.grouped?.[key]?.length ?? 0;
+}
 
 function triggerFilePicker() {
   fileInput.value?.click();
@@ -57,16 +65,32 @@ async function handleFileChange(e: Event) {
   formData.append("file", file);
 
   try {
-    const data = await $fetch<ExtractResponse>("/api/extract", {
+    const data = await $fetch<ExtractResponse>("/api/scrape", {
       method: "POST",
       body: formData,
     });
-    result.value = data;
+
+    // Guard against a malformed/unexpected response shape so the UI
+    // never crashes trying to read .grouped or .links off something odd.
+    if (!data || typeof data !== "object" || !Array.isArray(data.links)) {
+      error.value =
+        "Server returned an unexpected response. Check the server logs / Network tab.";
+      console.error("Unexpected /api/scrape response:", data);
+      return;
+    }
+
+    result.value = {
+      fileName: data.fileName ?? file.name,
+      totalLinksFound: data.totalLinksFound ?? data.links.length,
+      links: data.links ?? [],
+      grouped: data.grouped ?? { ai: [], com: [], co: [], so: [], app: [] },
+    };
   } catch (e: any) {
     error.value =
       e?.data?.statusMessage ||
       e?.message ||
       "Something went wrong extracting links from that file.";
+    console.error("Extract request failed:", e);
   } finally {
     loading.value = false;
     // reset input so selecting the same file again still fires change
@@ -177,13 +201,7 @@ function downloadCsv() {
               "
             >
               {{ tab.label }}
-              <span class="opacity-60 ml-1">
-                ({{
-                  tab.key === "all"
-                    ? result.totalLinksFound
-                    : (result.grouped[tab.key]?.length ?? 0)
-                }})
-              </span>
+              <span class="opacity-60 ml-1"> ({{ tabCount(tab.key) }}) </span>
             </button>
           </div>
 
