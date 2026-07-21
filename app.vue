@@ -203,10 +203,7 @@ function downloadCsv() {
             }}
             found across {{ result.fileNames.join(", ") }}
           </p>
-          <p
-            v-if="result.errors.length"
-            class="text-xs text-amber-400 mt-2"
-          >
+          <p v-if="result.errors.length" class="text-xs text-amber-400 mt-2">
             Skipped: {{ result.errors.join(" · ") }}
           </p>
         </div>
@@ -261,12 +258,9 @@ function downloadCsv() {
             :key="link.url + i"
             class="p-4 hover:bg-neutral-900/60 transition-colors"
           >
-            
-              :href="link.url"
-              target="_blank"
-              rel="noopener"
-              class="text-sm text-orange-400 hover:text-orange-300 break-all"
-            >
+            :href="link.url" target="_blank" rel="noopener" class="text-sm
+            text-orange-400 hover:text-orange-300 break-all" >
+            <a>
               {{ link.url }}
             </a>
             <div class="mt-1 text-xs text-neutral-500 flex flex-wrap gap-x-3">
