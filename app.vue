@@ -4,17 +4,20 @@ interface ExtractedLink {
   domain: string;
   tld: string;
   path: string;
+  sourceFile: string;
 }
 
 interface ExtractResponse {
-  fileName: string;
+  fileNames: string[];
+  fileCount: number;
   totalLinksFound: number;
   links: ExtractedLink[];
   grouped: Record<string, ExtractedLink[]>;
+  errors: string[];
 }
 
 const fileInput = ref<HTMLInputElement | null>(null);
-const selectedFileName = ref("");
+const selectedFileNames = ref<string[]>([]);
 const loading = ref(false);
 const error = ref("");
 const result = ref<ExtractResponse | null>(null);
@@ -32,8 +35,6 @@ const tabs: {
   { key: "app", label: ".app" },
 ];
 
-// Defensive: never assume `result.value.grouped` or `.links` exist,
-// in case the API response shape is ever off (error body, older cache, etc.)
 const visibleLinks = computed(() => {
   if (!result.value) return [];
   if (activeTab.value === "all") return result.value.links ?? [];
@@ -52,17 +53,21 @@ function triggerFilePicker() {
 
 async function handleFileChange(e: Event) {
   const target = e.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (!file) return;
+  const files = target.files;
+  if (!files || !files.length) return;
 
-  selectedFileName.value = file.name;
+  selectedFileNames.value = Array.from(files).map((f) => f.name);
   loading.value = true;
   error.value = "";
   result.value = null;
   activeTab.value = "all";
 
   const formData = new FormData();
-  formData.append("file", file);
+  // Append every selected file under the same field name — the backend
+  // now collects all "file" entries instead of just the first one.
+  for (const file of Array.from(files)) {
+    formData.append("file", file);
+  }
 
   try {
     const data = await $fetch<ExtractResponse>("/api/scrape", {
@@ -70,8 +75,6 @@ async function handleFileChange(e: Event) {
       body: formData,
     });
 
-    // Guard against a malformed/unexpected response shape so the UI
-    // never crashes trying to read .grouped or .links off something odd.
     if (!data || typeof data !== "object" || !Array.isArray(data.links)) {
       error.value =
         "Server returned an unexpected response. Check the server logs / Network tab.";
@@ -80,20 +83,21 @@ async function handleFileChange(e: Event) {
     }
 
     result.value = {
-      fileName: data.fileName ?? file.name,
+      fileNames: data.fileNames ?? selectedFileNames.value,
+      fileCount: data.fileCount ?? selectedFileNames.value.length,
       totalLinksFound: data.totalLinksFound ?? data.links.length,
       links: data.links ?? [],
       grouped: data.grouped ?? { ai: [], com: [], co: [], so: [], app: [] },
+      errors: data.errors ?? [],
     };
   } catch (e: any) {
     error.value =
       e?.data?.statusMessage ||
       e?.message ||
-      "Something went wrong extracting links from that file.";
+      "Something went wrong extracting links from those files.";
     console.error("Extract request failed:", e);
   } finally {
     loading.value = false;
-    // reset input so selecting the same file again still fires change
     target.value = "";
   }
 }
@@ -107,8 +111,14 @@ function copyAll() {
 function downloadCsv() {
   if (!result.value) return;
   const rows = [
-    ["url", "domain", "tld", "json_path"],
-    ...result.value.links.map((l) => [l.url, l.domain, l.tld, l.path]),
+    ["url", "domain", "tld", "source_file", "json_path"],
+    ...result.value.links.map((l) => [
+      l.url,
+      l.domain,
+      l.tld,
+      l.sourceFile,
+      l.path,
+    ]),
   ];
   const csv = rows
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
@@ -129,8 +139,8 @@ function downloadCsv() {
           JSON Link Extractor
         </h1>
         <p class="mt-2 text-neutral-400">
-          Upload a JSON file. We'll walk every string in it and pull out URLs
-          ending in
+          Upload one or more JSON files. We'll walk every string in each and
+          pull out URLs ending in
           <span class="text-neutral-200 font-medium">.ai</span>,
           <span class="text-neutral-200 font-medium">.com</span>,
           <span class="text-neutral-200 font-medium">.co</span>,
@@ -143,6 +153,7 @@ function downloadCsv() {
         ref="fileInput"
         type="file"
         accept="application/json,.json"
+        multiple
         class="hidden"
         @change="handleFileChange"
       />
@@ -156,10 +167,14 @@ function downloadCsv() {
           :disabled="loading"
           class="rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed px-5 py-3 text-sm font-medium transition-colors"
         >
-          {{ loading ? "Extracting…" : "Choose JSON file" }}
+          {{ loading ? "Extracting…" : "Choose JSON files" }}
         </button>
         <span class="text-sm text-neutral-500">
-          {{ selectedFileName || "No file selected" }}
+          {{
+            selectedFileNames.length
+              ? `${selectedFileNames.length} file${selectedFileNames.length === 1 ? "" : "s"} selected`
+              : "No files selected"
+          }}
         </span>
       </div>
 
@@ -171,19 +186,28 @@ function downloadCsv() {
       </p>
 
       <div v-if="loading" class="mt-10 text-neutral-500 text-sm">
-        Parsing file and walking the JSON tree…
+        Parsing files and walking each JSON tree…
       </div>
 
       <div v-if="result && !loading" class="mt-10">
         <div
           class="rounded-lg border border-neutral-800 bg-neutral-900/50 p-4 mb-6"
         >
-          <h2 class="font-medium text-neutral-100">{{ result.fileName }}</h2>
+          <h2 class="font-medium text-neutral-100">
+            {{ result.fileCount }} file{{ result.fileCount === 1 ? "" : "s" }}
+            processed
+          </h2>
           <p class="text-xs text-neutral-500 mt-1">
             {{ result.totalLinksFound }} link{{
               result.totalLinksFound === 1 ? "" : "s"
             }}
-            found
+            found across {{ result.fileNames.join(", ") }}
+          </p>
+          <p
+            v-if="result.errors.length"
+            class="text-xs text-amber-400 mt-2"
+          >
+            Skipped: {{ result.errors.join(" · ") }}
           </p>
         </div>
 
@@ -237,7 +261,7 @@ function downloadCsv() {
             :key="link.url + i"
             class="p-4 hover:bg-neutral-900/60 transition-colors"
           >
-            <a
+            
               :href="link.url"
               target="_blank"
               rel="noopener"
@@ -247,6 +271,7 @@ function downloadCsv() {
             </a>
             <div class="mt-1 text-xs text-neutral-500 flex flex-wrap gap-x-3">
               <span class="uppercase">.{{ link.tld }}</span>
+              <span class="text-neutral-600">{{ link.sourceFile }}</span>
               <span class="break-all">{{ link.path }}</span>
             </div>
           </li>

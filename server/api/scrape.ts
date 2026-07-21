@@ -2,12 +2,9 @@ import { defineEventHandler, readMultipartFormData, createError } from "h3";
 
 const ALLOWED_TLDS = ["ai", "com", "co", "so", "app"];
 const URL_REGEX = /https?:\/\/[^\s<>()"'\]\[]+/gi;
+const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25MB per file
+const MAX_FILES = 25; // safety cap on batch size
 
-// Matches bare domains with no protocol, e.g. "example.com" or "example.com/pricing".
-// - lookbehind stops it matching mid-word (won't double-fire inside a longer token,
-//   won't fire off the end of an email's local-part, etc.)
-// - requires the domain to end in one of our allowed TLDs
-// - optionally grabs a trailing path/query if present
 const BARE_DOMAIN_REGEX =
   /(?<![\w.@-])((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:ai|com|co|so|app))(\/[^\s"'()<>\]]*)?/gi;
 
@@ -16,6 +13,7 @@ interface ExtractedLink {
   domain: string;
   tld: string;
   path: string;
+  sourceFile: string;
 }
 
 function cleanTrailingPunctuation(u: string): string {
@@ -30,9 +28,9 @@ function getTld(hostname: string): string {
 function extractUrlsFromString(
   text: string,
   path: string,
+  sourceFile: string,
   out: ExtractedLink[],
 ) {
-  // Pass 1: full URLs that already have a protocol, e.g. "https://example.com"
   const urlMatches = text.match(URL_REGEX);
   if (urlMatches) {
     for (const raw of urlMatches) {
@@ -41,7 +39,7 @@ function extractUrlsFromString(
         const host = new URL(url).hostname.toLowerCase();
         const tld = getTld(host);
         if (ALLOWED_TLDS.includes(tld)) {
-          out.push({ url, domain: host, tld, path });
+          out.push({ url, domain: host, tld, path, sourceFile });
         }
       } catch {
         // not a parsable URL, skip
@@ -49,11 +47,8 @@ function extractUrlsFromString(
     }
   }
 
-  // Mask out whatever Pass 1 already matched so Pass 2 doesn't re-detect
-  // the same domain a second time as a "bare" match.
   const maskedText = text.replace(URL_REGEX, (m) => " ".repeat(m.length));
 
-  // Pass 2: bare domains with no protocol, e.g. "example.com" or "example.com/pricing"
   const bareMatches = maskedText.matchAll(BARE_DOMAIN_REGEX);
   for (const m of bareMatches) {
     const domainPart = m[1];
@@ -64,7 +59,7 @@ function extractUrlsFromString(
       const host = new URL(url).hostname.toLowerCase();
       const tld = getTld(host);
       if (ALLOWED_TLDS.includes(tld)) {
-        out.push({ url, domain: host, tld, path });
+        out.push({ url, domain: host, tld, path, sourceFile });
       }
     } catch {
       // not a parsable URL, skip
@@ -72,30 +67,32 @@ function extractUrlsFromString(
   }
 }
 
-// Recursively walk any JSON value — objects, arrays, strings — looking for URLs.
-// `path` tracks where in the structure we found it, e.g. "data.comments[3].body"
-function walkJson(value: unknown, path: string, out: ExtractedLink[]) {
+function walkJson(
+  value: unknown,
+  path: string,
+  sourceFile: string,
+  out: ExtractedLink[],
+) {
   if (value == null) return;
 
   if (typeof value === "string") {
-    extractUrlsFromString(value, path, out);
+    extractUrlsFromString(value, path, sourceFile, out);
     return;
   }
 
   if (Array.isArray(value)) {
-    value.forEach((item, i) => walkJson(item, `${path}[${i}]`, out));
+    value.forEach((item, i) =>
+      walkJson(item, `${path}[${i}]`, sourceFile, out),
+    );
     return;
   }
 
   if (typeof value === "object") {
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-      walkJson(val, path ? `${path}.${key}` : key, out);
+      walkJson(val, path ? `${path}.${key}` : key, sourceFile, out);
     }
   }
-  // numbers, booleans, etc. — nothing to extract
 }
-
-const MAX_FILE_BYTES = 25 * 1024 * 1024; // 25MB safety cap
 
 export default defineEventHandler(async (event) => {
   const formData = await readMultipartFormData(event);
@@ -104,49 +101,68 @@ export default defineEventHandler(async (event) => {
     throw createError({
       statusCode: 400,
       statusMessage:
-        "No file uploaded. Send a JSON file as multipart form data.",
+        "No files uploaded. Send one or more JSON files as multipart form data.",
     });
   }
 
-  const file = formData.find((f) => f.name === "file") || formData[0];
+  // Collect every part named "file" — this is what makes multi-file work,
+  // since the frontend now appends each selected file under the same key.
+  const files = formData.filter((f) => f.name === "file" && f.data);
 
-  if (!file || !file.data) {
+  if (!files.length) {
     throw createError({
       statusCode: 400,
-      statusMessage: "Could not find file field in upload.",
+      statusMessage: "Could not find any file fields in upload.",
     });
   }
 
-  if (file.data.length > MAX_FILE_BYTES) {
+  if (files.length > MAX_FILES) {
     throw createError({
       statusCode: 413,
-      statusMessage: "File is too large (max 25MB).",
+      statusMessage: `Too many files (max ${MAX_FILES} per upload).`,
     });
   }
 
-  let parsed: unknown;
-  try {
-    const text = file.data.toString("utf-8");
-    parsed = JSON.parse(text);
-  } catch (err) {
+  const allResults: ExtractedLink[] = [];
+  const processedFileNames: string[] = [];
+  const errors: string[] = [];
+
+  for (const file of files) {
+    const fileName = file.filename || "uploaded.json";
+
+    if (file.data.length > MAX_FILE_BYTES) {
+      errors.push(`${fileName}: too large (max 25MB)`);
+      continue;
+    }
+
+    let parsed: unknown;
+    try {
+      const text = file.data.toString("utf-8");
+      parsed = JSON.parse(text);
+    } catch {
+      errors.push(`${fileName}: not valid JSON`);
+      continue;
+    }
+
+    walkJson(parsed, "", fileName, allResults);
+    processedFileNames.push(fileName);
+  }
+
+  if (!processedFileNames.length) {
     throw createError({
       statusCode: 400,
-      statusMessage: "That file is not valid JSON.",
+      statusMessage: `None of the uploaded files could be processed. ${errors.join("; ")}`,
     });
   }
 
-  const results: ExtractedLink[] = [];
-  walkJson(parsed, "", results);
-
-  // Dedupe by exact URL, keep first occurrence
+  // Dedupe by exact URL across the whole batch, keep first occurrence
   const seen = new Set<string>();
-  const deduped = results.filter((r) => {
+  const deduped = allResults.filter((r) => {
     if (seen.has(r.url)) return false;
     seen.add(r.url);
     return true;
   });
 
-  // Group by TLD for convenience
   const grouped: Record<string, ExtractedLink[]> = {
     ai: [],
     com: [],
@@ -159,9 +175,11 @@ export default defineEventHandler(async (event) => {
   }
 
   return {
-    fileName: file.filename || "uploaded.json",
+    fileNames: processedFileNames,
+    fileCount: processedFileNames.length,
     totalLinksFound: deduped.length,
     links: deduped,
     grouped,
+    errors,
   };
 });
