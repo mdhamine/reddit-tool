@@ -1,16 +1,24 @@
 export default defineNuxtConfig({
-  compatibilityDate: '2024-11-01',
+  compatibilityDate: "2024-11-01",
   devtools: { enabled: true },
-  modules: ['@nuxtjs/tailwindcss'],
   runtimeConfig: {
-    public: {}
+    gmailUser: process.env.NUXT_GMAIL_USER,
+    gmailAppPassword: process.env.NUXT_GMAIL_APP_PASSWORD,
+  },
+  modules: ["@nuxtjs/tailwindcss"],
+  runtimeConfig: {
+    public: {},
   },
   app: {
     head: {
-      title: 'Reddit Thread URL Extractor',
+      title: "Reddit Thread URL Extractor",
       meta: [
-        { name: 'description', content: 'Paste a Reddit thread URL, scrape all comments, and extract .ai / .com / .app / .co domain links.' }
-      ]
-    }
-  }
-})
+        {
+          name: "description",
+          content:
+            "Paste a Reddit thread URL, scrape all comments, and extract .ai / .com / .app / .co domain links.",
+        },
+      ],
+    },
+  },
+});

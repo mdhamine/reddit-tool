@@ -129,6 +129,46 @@ function downloadCsv() {
   link.download = "extracted-links.csv";
   link.click();
 }
+
+// ---- Email sending ----
+const emailReceiver = ref("");
+const emailTitle = ref("");
+const emailContent = ref("");
+const emailSending = ref(false);
+const emailError = ref("");
+const emailSuccess = ref("");
+
+async function sendEmail() {
+  emailError.value = "";
+  emailSuccess.value = "";
+
+  if (!emailReceiver.value || !emailTitle.value || !emailContent.value) {
+    emailError.value = "Please fill in receiver, title, and content.";
+    return;
+  }
+
+  emailSending.value = true;
+  try {
+    await $fetch("/api/email", {
+      method: "POST",
+      body: {
+        to: emailReceiver.value,
+        subject: emailTitle.value,
+        content: emailContent.value,
+      },
+    });
+    emailSuccess.value = "Email sent successfully.";
+    emailReceiver.value = "";
+    emailTitle.value = "";
+    emailContent.value = "";
+  } catch (e: any) {
+    emailError.value =
+      e?.data?.statusMessage || e?.message || "Failed to send email.";
+    console.error("Send email failed:", e);
+  } finally {
+    emailSending.value = false;
+  }
+}
 </script>
 
 <template>
@@ -275,6 +315,73 @@ function downloadCsv() {
           </li>
         </ul>
       </div>
+
+      <!-- Send Email -->
+      <section class="mt-16 border-t border-neutral-800 pt-10">
+        <h2 class="text-xl font-semibold tracking-tight">Send an Email</h2>
+        <p class="mt-2 text-neutral-400 text-sm">
+          Fill in the receiver, subject, and content, then send it via Gmail
+          SMTP.
+        </p>
+
+        <div class="mt-6 flex flex-col gap-4">
+          <div>
+            <label class="block text-xs text-neutral-500 mb-1">
+              Receiver email
+            </label>
+            <input
+              v-model="emailReceiver"
+              type="email"
+              placeholder="someone@example.com"
+              class="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-orange-600"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs text-neutral-500 mb-1">
+              Title / Subject
+            </label>
+            <input
+              v-model="emailTitle"
+              type="text"
+              placeholder="Email subject"
+              class="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-orange-600"
+            />
+          </div>
+
+          <div>
+            <label class="block text-xs text-neutral-500 mb-1"> Content </label>
+            <textarea
+              v-model="emailContent"
+              rows="6"
+              placeholder="Write your email content here…"
+              class="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-4 py-2.5 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-orange-600 resize-y"
+            ></textarea>
+          </div>
+
+          <p
+            v-if="emailError"
+            class="rounded-lg bg-red-950/50 border border-red-900 text-red-300 text-sm px-4 py-3"
+          >
+            {{ emailError }}
+          </p>
+          <p
+            v-if="emailSuccess"
+            class="rounded-lg bg-emerald-950/50 border border-emerald-900 text-emerald-300 text-sm px-4 py-3"
+          >
+            {{ emailSuccess }}
+          </p>
+
+          <button
+            type="button"
+            :disabled="emailSending"
+            @click="sendEmail"
+            class="self-start rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed px-5 py-3 text-sm font-medium transition-colors"
+          >
+            {{ emailSending ? "Sending…" : "Send Email" }}
+          </button>
+        </div>
+      </section>
     </div>
   </div>
 </template>
