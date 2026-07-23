@@ -381,7 +381,7 @@ async function sendEmail() {
             @click="sendEmail"
             class="self-start rounded-lg bg-orange-600 hover:bg-orange-500 disabled:opacity-50 disabled:cursor-not-allowed px-5 py-3 text-sm font-medium transition-colors"
           >
-            {{ emailSending ? "Sending…" : "Send Email" }}
+            {{ emailSending ? "Sending,…" : "Send Email" }}
           </button>
         </div>
       </section>
