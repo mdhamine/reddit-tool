@@ -132,9 +132,9 @@ function downloadCsv() {
 
 // ---- Email sending ----
 const emailReceiver = ref("");
-const emailTitle = ref("Webapp chrillt reddit");
+const emailTitle = ref("Webapp reddit reddit");
 const emailContent = ref(
-  "[i](mailto:contact@semfora.ai)heyy, are you the technical founder of renderaudit, i saw you posted about it on reddit",
+  "heyy, are you the technical founder of renderaudit, i saw you posted about it on reddit",
 );
 const emailSending = ref(false);
 const emailError = ref("");
@@ -161,9 +161,9 @@ async function sendEmail() {
     });
     emailSuccess.value = "Email sent successfully.";
     emailReceiver.value = "";
-    emailTitle.value = "Webapp chrillt reddit";
+    emailTitle.value = "Webapp reddit reddit";
     emailContent.value =
-      "[i](mailto:contact@semfora.ai)heyy, are you the technical founder of renderaudit, i saw you posted about it on reddit";
+      "heyy, are you the technical founder of renderaudit, i saw you posted about it on reddit";
   } catch (e: any) {
     emailError.value =
       e?.data?.statusMessage || e?.message || "Failed to send email.";
