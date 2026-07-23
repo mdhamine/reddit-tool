@@ -4,11 +4,9 @@ export default defineNuxtConfig({
   runtimeConfig: {
     gmailUser: process.env.NUXT_GMAIL_USER,
     gmailAppPassword: process.env.NUXT_GMAIL_APP_PASSWORD,
-  },
-  modules: ["@nuxtjs/tailwindcss"],
-  runtimeConfig: {
     public: {},
   },
+  modules: ["@nuxtjs/tailwindcss"],
   app: {
     head: {
       title: "Reddit Thread URL Extractor",
