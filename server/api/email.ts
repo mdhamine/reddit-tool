@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 
   try {
     const info = await transporter.sendMail({
-      from: gmailUser,
+      from: "mdaksel011@gmail.com",
       to,
       subject,
       text: content,
