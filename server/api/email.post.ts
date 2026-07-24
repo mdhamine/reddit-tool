@@ -34,6 +34,16 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  console.log("DEBUG gmailUser:", JSON.stringify(gmailUser));
+  console.log(
+    "DEBUG passLength:",
+    gmailPass?.length,
+    "first2:",
+    gmailPass?.slice(0, 2),
+    "last2:",
+    gmailPass?.slice(-2),
+  );
+
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
