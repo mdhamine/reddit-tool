@@ -17,22 +17,37 @@ export default defineEventHandler(async (event) => {
   }
 
   const config = useRuntimeConfig();
+  const gmailUser = config.gmailUser?.trim(); // must equal mdaksel011@gmail.com
+  const gmailPass = config.gmailAppPassword?.trim();
+
+  if (!gmailUser || !gmailPass) {
+    console.error(
+      "gmailUser:",
+      JSON.stringify(gmailUser),
+      "passLength:",
+      gmailPass?.length,
+    );
+    throw createError({
+      statusCode: 500,
+      statusMessage:
+        "Email service not configured: NUXT_GMAIL_USER or NUXT_GMAIL_APP_PASSWORD missing/empty",
+    });
+  }
 
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: config.gmailUser,
-      pass: config.gmailAppPassword,
+      user: gmailUser,
+      pass: gmailPass,
     },
   });
 
   try {
     const info = await transporter.sendMail({
-      from: config.gmailUser,
+      from: `mdaksel011@gmail.com`, // sender shown to recipient
       to: body.to,
       subject: body.subject,
       text: body.content,
-      // If you want to allow HTML content instead, swap `text` for `html`.
     });
 
     return {
