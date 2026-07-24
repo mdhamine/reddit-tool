@@ -9,7 +9,7 @@ export default defineNuxtConfig({
   modules: ["@nuxtjs/tailwindcss"],
   app: {
     head: {
-      title: "Reddit Thread URL Extractor",
+      title: "Reddit T hread URL Extractor",
       meta: [
         {
           name: "description",
